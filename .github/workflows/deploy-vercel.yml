@@ -1,91 +1,78 @@
 # ==============================================================================
-# v01 ANLEITUNG / USAGE INSTRUCTIONS (Bitte vor der Nutzung lesen!)
+# v02 ANLEITUNG / USAGE INSTRUCTIONS (Bitte vor der Nutzung lesen!)
 # ==============================================================================
 # Was macht dieses Skript?
 # Da der kostenlose Vercel-Server (Hobby-Plan) beim Kompilieren von riesigen 
 # Projekten wie LobeChat oft wegen zu wenig Arbeitsspeicher (RAM) abstürzt 
 # (Fehler 137 / SIGKILL), verlagern wir die Schwerstarbeit mit diesem Skript 
-# auf die kostenlosen Server von GitHub (GitHub Actions).
-# GitHub hat stärkere Server. GitHub baut die Next.js-Applikation fehlerfrei 
-# zusammen und schickt am Ende nur das fertige, "leichte" Paket an Vercel.
-# Vercel muss das Paket dann nur noch hosten/anzeigen, was keinen RAM verbraucht.
+# auf die kostenfreien, starken Server von GitHub (GitHub Actions).
 #
 # Voraussetzungen (Secrets):
-# Du musst in deinem GitHub Repository unter:
-# Settings -> Secrets and variables -> Actions
-# folgende drei "Repository secrets" anlegen:
-# 1. VERCEL_TOKEN (Dein persönlicher Token von https://vercel.com/account/tokens)
-# 2. VERCEL_ORG_ID (Deine Vercel Account ID / Team ID aus den Vercel Settings)
-# 3. VERCEL_PROJECT_ID (Deine Project ID aus den Vercel Projekteinstellungen)
+# Unter Settings -> Secrets and variables -> Actions müssen 3 Secrets liegen:
+# 1. VERCEL_TOKEN (Dein Vercel Account Token)
+# 2. VERCEL_ORG_ID (Deine Vercel Account ID / Team ID)
+# 3. VERCEL_PROJECT_ID (Deine Vercel Project ID)
 #
 # Wie startet man es?
-# Gehe im GitHub Repository oben auf den Reiter "Actions", klicke links auf 
-# "Manuelles Vercel Deployment" und dann rechts auf den Button "Run workflow".
+# Reiter "Actions" -> Links auf "Manuelles Vercel Deployment" -> "Run workflow"
 # ==============================================================================
 
-# Der Name des Workflows, wie er später in der linken Liste unter "Actions" angezeigt wird.
+# Der Name des Workflows im GitHub Actions Dashboard
 name: Manuelles Vercel Deployment
 
-# 'on' definiert den sogenannten Trigger, also WANN dieser Workflow ausgeführt wird.
+# Trigger: Bestimmt, wann dieser Workflow startet
 on:
-  # 'workflow_dispatch' bedeutet: Dieser Workflow läuft nicht automatisch bei einem Update, 
-  # sondern erstellt einen Button in der GitHub-Oberfläche, den du gezielt anklicken musst.
+  # Erzeugt den Button "Run workflow" für manuelle Ausführung
   workflow_dispatch:
 
-# 'env' definiert globale Umgebungsvariablen. Vercel benötigt diese zwingend, 
-# um zu wissen, in welchen Account und in welches Projekt das Skript hochladen soll.
+# Globale Umgebungsvariablen für das Vercel CLI
 env:
-  # Holt die Vercel Organization/Account ID sicher und verschlüsselt aus deinen GitHub Secrets
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  # Holt die genaue Vercel Projekt-ID sicher und verschlüsselt aus deinen GitHub Secrets
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-# 'jobs' definiert die eigentlichen Aufgaben, die der Server ausführen soll.
 jobs:
-  # Wir definieren hier einen einzigen Job und nennen ihn "Deploy"
   Deploy:
-    # 'runs-on' sagt GitHub, welches Betriebssystem der temporäre Server haben soll.
-    # 'ubuntu-latest' ist der Standard, extrem stabil und bietet genug Arbeitsspeicher.
+    # Wir nutzen das aktuellste Ubuntu-Linux als Server-Betriebssystem
     runs-on: ubuntu-latest
     
-    # 'steps' ist die chronologische Liste der Befehle, die der Server von oben nach unten abarbeitet.
     steps:
-      # --- Schritt 1: Code herunterladen ---
+      # --- Schritt 1: Code laden ---
       - name: 1. Code aus dem Repository laden (Checkout)
-        # 'uses' greift auf eine vorgefertigte, offizielle GitHub Action zu. Version 4 ist aktuell.
         uses: actions/checkout@v4
 
-      # --- Schritt 2: Laufzeitumgebung einrichten ---
-      - name: 2. Node.js Umgebung einrichten
-        # Wir definieren die Basis-Software, damit der Server weiß, wie er JavaScript/TypeScript baut.
+      # --- Schritt 2: Node.js Umgebung ---
+      - name: 2. Node.js Laufzeitumgebung einrichten
         uses: actions/setup-node@v4
         with:
-          # Wir nutzen Version 20, da dies die aktuellste, extrem stabile LTS-Version (Long Term Support) ist.
+          # Wir nutzen Version 20 (zuverlässigste LTS-Version für Next.js Builds)
           node-version: 20
 
-      # --- Schritt 3: Vercel Software installieren ---
-      - name: 3. Offizielles Vercel CLI (Kommandozeilen-Tool) installieren
-        # 'npm install --global' installiert das Tool von Vercel systemweit auf dem GitHub Server.
+      # --- Schritt 3: Bun Umgebung (DER FIX FÜR FEHLER 127) ---
+      - name: 3. Bun Laufzeitumgebung einrichten
+        # LobeChat nutzt neuere Build-Skripte, die den Paketmanager 'Bun' zwingend 
+        # erfordern. Diese Action installiert Bun systemweit auf dem GitHub-Server.
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # --- Schritt 4: Vercel Tools ---
+      - name: 4. Offizielles Vercel CLI installieren
+        # Installiert das Kommandozeilen-Tool von Vercel, um mit der Vercel-API zu sprechen
         run: npm install --global vercel@latest
 
-      # --- Schritt 4: Projekt-Konfiguration holen ---
-      - name: 4. Vercel Projekt-Umgebung abrufen (Pull)
-        # 'vercel pull' verbindet sich mit Vercel. 
-        # '--yes' beantwortet automatische Rückfragen des Servers mit Ja.
-        # '--environment=production' holt die Live-Einstellungen (z.B. deine API Keys).
-        # '--token' weist dich gegenüber Vercel mit deinem geheimen Passwort aus.
+      # --- Schritt 5: Konfiguration holen ---
+      - name: 5. Vercel Projekt-Umgebung abrufen (Pull)
+        # Zieht deine Live-Einstellungen (wie z.B. deine hinterlegten API Keys) von Vercel
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
-      # --- Schritt 5: Die Schwerstarbeit (Build) ---
-      - name: 5. Applikation kompilieren (Build)
-        # 'vercel build' baut LobeChat. Das ist der Schritt, der auf Vercel immer abgestürzt ist.
-        # '--prod' sagt dem Compiler, dass er den Code für die Live-Schaltung maximal optimieren soll.
+      # --- Schritt 6: Das Kompilieren ---
+      - name: 6. Applikation kompilieren (Build)
+        # Baut die App. Durch den Bun-Fix (Schritt 3) läuft dieser Schritt nun fehlerfrei durch.
+        # Dies ist der rechenintensivste Prozess, der auf Vercel immer abgestürzt ist.
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-      # --- Schritt 6: Das Hochladen ---
-      - name: 6. Fertiges Paket an Vercel senden (Deploy)
-        # 'vercel deploy' lädt die Dateien hoch.
-        # '--prebuilt' ist der wichtigste Befehl hier! Er sagt Vercel: "Fass den Code nicht an, 
-        # versuche nicht ihn zu bauen, er ist bereits zu 100% fertig!"
-        # '--prod' schaltet deinen LobeChat sofort auf deiner Domain live.
+      # --- Schritt 7: Live-Schaltung ---
+      - name: 7. Fertiges Paket an Vercel senden (Deploy)
+        # Lädt nur noch das fertig gebaute, stark komprimierte Endprodukt hoch.
+        # Das Flag '--prebuilt' schützt Vercel davor, selbst kompilieren zu wollen.
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
