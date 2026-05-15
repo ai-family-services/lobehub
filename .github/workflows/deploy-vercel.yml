@@ -1,17 +1,16 @@
 # ==============================================================================
-# MODULE DOCSTRING & USAGE INSTRUCTIONS
+# v06 MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: OOM-Proof Manual Vercel Deployment Pipeline
+# Name: OOM-Proof Manual Vercel Deployment Pipeline (Community Best-Practice)
 # Description: 
-#   This advanced CI/CD script offloads the heavy Next.js/Bun build process 
-#   from Vercel to GitHub Actions. To prevent Out-Of-Memory (OOM) kills on 
-#   standard 7GB GitHub runners during the massive LobeChat compilation, 
-#   it injects an 8GB SSD Swap-File. It also forces Node 24 runtime to 
-#   prevent deprecation warnings and securely handles `.env` variables.
+#   Dieses CI/CD Skript löst das bekannte Vercel 1GB RAM-Limit Problem,
+#   das bei Monorepos wie LobeChat zu 'Exit Code 137' führt. 
+#   Wir nutzen stattdessen GitHub Actions (16GB RAM) + 8GB SSD-Swap.
 #
-# Usage:
-#   1. Commit this file to `.github/workflows/deploy-vercel.yml`.
-#   2. Go to 'Actions' tab -> 'Manuelles Vercel Deployment' -> 'Run workflow'.
+# Architektur-Fixes inkludiert:
+#   - dd-Swap Creation (verhindert 'fallocate' OverlayFS Fehler)
+#   - OS-Level Secret Injection (verhindert Next.js Build-Time Fehler)
+#   - Node 24 Fix (verhindert Deprecation Warnungen)
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -19,11 +18,15 @@ name: Manuelles Vercel Deployment
 on:
   workflow_dispatch:
 
+# ------------------------------------------------------------------------------
+# GLOBALE UMGEBUNGSVARIABLEN (OS-Level Injection)
+# ------------------------------------------------------------------------------
 env:
-  # Vercel API Keys
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-  # State-of-the-Art (2026): Unterdrückt Deprecation-Warnungen und nutzt V8 Engine Upgrades
+  KEY_VAULTS_SECRET: ${{ secrets.KEY_VAULTS_SECRET }}
+  ACCESS_CODE: ${{ secrets.ACCESS_CODE }}
+  # Zwingt GitHub Actions auf die moderne V8 Engine (unterdrückt Warnungen)
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -31,76 +34,52 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # ------------------------------------------------------------------------
-      # SCHRITT 1: Quellcode vorbereiten
-      # ------------------------------------------------------------------------
+      # --- Schritt 1: Quellcode laden ---
       - name: 1. Code aus dem Repository laden (Checkout)
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------------------
-      # SCHRITT 2: Node.js Architektur bereitstellen
-      # ------------------------------------------------------------------------
+      # --- Schritt 2: Node Engine ---
       - name: 2. Node.js Laufzeitumgebung einrichten
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # ------------------------------------------------------------------------
-      # SCHRITT 3: Bun Paketmanager installieren
-      # ------------------------------------------------------------------------
+      # --- Schritt 3: Bun Paketmanager ---
       - name: 3. Bun Laufzeitumgebung einrichten
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # ------------------------------------------------------------------------
-      # SCHRITT 4: DEVOPS MEMORY HACK (Der Fix für deinen Fehler!)
-      # ------------------------------------------------------------------------
-      - name: 4. Server-RAM verdoppeln (8GB Swap File anlegen)
-        # LobeChat fordert per Skript 8192 MB RAM. Der Server hat nur 7000 MB.
-        # Wir erstellen hier auf der SSD des Servers 8 GB virtuellen Arbeitsspeicher.
-        # 'fallocate' reserviert den Platz, 'mkswap' formatiert ihn, 'swapon' aktiviert ihn.
+      # --- Schritt 4: DevOps Memory Hack (Der dd-Fix) ---
+      - name: 4. Server-RAM absichern (8GB Swap File anlegen)
+        # Wir nutzen 'dd' statt 'fallocate', um den 'Text file busy' Fehler 
+        # auf virtuellen Dateisystemen zu umgehen. 
+        # bs=1M und count=8192 schreibt präzise 8 Gigabyte auf die SSD.
         run: |
-          echo "Aktueller RAM vor dem Hack:"
-          free -h
-          sudo fallocate -l 8G /swapfile
+          echo "Erstelle 8GB Swap mit dd (Dies dauert ca. 5-10 Sekunden)..."
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          echo "Neuer RAM nach dem Hack (Swap wurde vergrößert):"
+          echo "Swap erfolgreich gemountet!"
           free -h
 
-      # ------------------------------------------------------------------------
-      # SCHRITT 5: Vercel Tooling installieren
-      # ------------------------------------------------------------------------
+      # --- Schritt 5: Vercel Tooling ---
       - name: 5. Offizielles Vercel CLI installieren
         run: npm install --global vercel@latest
 
-      # ------------------------------------------------------------------------
-      # SCHRITT 6: Konfiguration und Sicherheits-Schlüssel holen
-      # ------------------------------------------------------------------------
-      - name: 6. Vercel Projekt-Umgebung und Secrets abrufen
-        # Zieht die Keys (inkl. KEY_VAULTS_SECRET) unsichtbar auf den Runner
-        run: |
-          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-          vercel env pull .env --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      # --- Schritt 6: Projekt-Config Pull ---
+      - name: 6. Vercel Projekt-Umgebung abrufen
+        # Zieht die restliche Projektstruktur. Secrets liegen ohnehin im globalen 'env'.
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
-      # ------------------------------------------------------------------------
-      # SCHRITT 7: Kompilieren (Jetzt mit genug Speicher!)
-      # ------------------------------------------------------------------------
+      # --- Schritt 7: Kompilieren ---
       - name: 7. Applikation kompilieren (Build)
-        # Dank der Swap-File aus Schritt 4 wird der Linux OOM-Killer hier nicht
-        # mehr eingreifen. Der Next.js Build läuft sicher durch.
+        # Next.js hat nun über 20GB kombinierten RAM zur Verfügung und die 
+        # Secrets direkt im Betriebssystem!
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-      # ------------------------------------------------------------------------
-      # SCHRITT 8: Live-Schaltung
-      # ------------------------------------------------------------------------
+      # --- Schritt 8: Deployment ---
       - name: 8. Fertiges Paket an Vercel senden (Deploy)
+        # '--prebuilt' überspringt den Vercel-Builder komplett!
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
-
-      # ------------------------------------------------------------------------
-      # SCHRITT 9: Security Cleanup
-      # ------------------------------------------------------------------------
-      - name: 9. Sicherheit - Temporaere Keys restlos loeschen
-        run: rm -f .env
