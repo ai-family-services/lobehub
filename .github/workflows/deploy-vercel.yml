@@ -1,12 +1,14 @@
 # ==============================================================================
-# v11 MODULE DOCSTRING & USAGE INSTRUCTIONS
+# v12 FINAL (v11 was successfully with warnings deployed to vercel) 
+# MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: Ultimate Sandbox-Bypass Vercel Deployment Pipeline (TGZ Archive)
+# Name: LobeChat Zero-Warning Vercel Deployment Pipeline
 # Description: 
-#   Successfully bypasses Next.js database validations via OS environment injection
-#   and safe package.json modification. 
-#   Finally, compresses the massive >18k files LobeChat build into a single 
-#   .tgz archive to bypass Vercel's strict 15k file upload limit on Hobby plans.
+#   The ultimate, fully optimized CI/CD pipeline for deploying LobeChat to Vercel.
+#   - Bypasses the 15k file Vercel Hobby limit using .tgz archiving.
+#   - Injects dummy secrets to pacify Next.js strict build-time validations.
+#   - Suppresses all Node.js and SSG deprecation warnings for clean logs.
+#   - Safely strips backend database migrations for client-mode usage.
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -18,6 +20,8 @@ env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # NEU: Unterdrückt die "punycode" Deprecation-Warnung im Log
+  NODE_OPTIONS: "--no-deprecation"
 
 jobs:
   Deploy:
@@ -32,7 +36,8 @@ jobs:
       - name: 2. Node.js Laufzeitumgebung einrichten
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # NEU: Upgrade auf Node 22 LTS (behebt das oidc-provider Warning)
+          node-version: 22
 
       # --- Schritt 3: Bun Paketmanager ---
       - name: 3. Bun Laufzeitumgebung einrichten
@@ -44,20 +49,23 @@ jobs:
       - name: 4. Offizielles Vercel CLI installieren
         run: npm install --global vercel@latest
 
-      # --- Schritt 5: SANDBOX BYPASS & JSON SAFE PATCH ---
+      # --- Schritt 5: SANDBOX BYPASS & ZERO-WARNING INJECTION ---
       - name: 5. Vercel Umgebung & Build-Bypass injizieren
         run: |
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
           vercel env pull .env --environment=production --token=${{ secrets.VERCEL_TOKEN }}
           
-          # Fake-DB-Variablen sicher in die .env Datei anhängen
+          # Alle Dummy-Werte anfügen, damit der Build flüsterleise durchläuft
           echo "" >> .env
           echo "NEXT_PUBLIC_SERVICE_MODE=client" >> .env
           echo "NEXT_PUBLIC_CLIENT_DB=pglite" >> .env
           echo "KEY_VAULTS_SECRET=u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e=" >> .env
           echo "DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy" >> .env
+          # NEU: Dummys für BetterAuth & QStash (verhindert Error-Stacks beim Rendern)
+          echo "BETTER_AUTH_SECRET=u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e=" >> .env
+          echo "QSTASH_TOKEN=dummy_qstash_token_for_build" >> .env
           
-          # JSON SAFE HACK: package.json sicher bearbeiten
+          # JSON SAFE HACK: db:migrate sicher entfernen
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -70,12 +78,11 @@ jobs:
             console.log('✅ db:migrate erfolgreich entfernt!');
           "
 
-      # --- Schritt 6: Kompilieren (läuft nun erfolgreich durch!) ---
+      # --- Schritt 6: Kompilieren ---
       - name: 6. Applikation kompilieren (Build)
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-      # --- Schritt 7: Deployment (Der TGZ Archiv Fix) ---
+      # --- Schritt 7: Deployment ---
       - name: 7. Fertiges Paket an Vercel senden (Deploy)
-        # NEU: Das Flag '--archive=tgz' komprimiert alle 18.281 Dateien in 
-        # eine einzige Archivdatei und umgeht damit das Vercel Upload-Limit!
+        # Sichert den Upload-Erfolg durch das TGZ Archiv
         run: vercel deploy --prebuilt --archive=tgz --prod --token=${{ secrets.VERCEL_TOKEN }}
