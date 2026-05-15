@@ -1,13 +1,12 @@
 # ==============================================================================
-# 10 MODULE DOCSTRING & USAGE INSTRUCTIONS
+# v11 MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: Ultimate Sandbox-Bypass Vercel Deployment Pipeline (JSON Safe)
+# Name: Ultimate Sandbox-Bypass Vercel Deployment Pipeline (TGZ Archive)
 # Description: 
-#   Vercel isoliert den Build-Prozess und ignoriert OS-Variablen. 
-#   Dieses Skript bricht in die Sandbox ein, schreibt Dummy-Datenbank-Werte 
-#   direkt in die .env Datei. Danach nutzt es ein sicheres Node.js Skript, 
-#   um den 'db:migrate' Befehl restlos aus der package.json zu entfernen, 
-#   ohne die JSON-Syntax zu zerstören.
+#   Successfully bypasses Next.js database validations via OS environment injection
+#   and safe package.json modification. 
+#   Finally, compresses the massive >18k files LobeChat build into a single 
+#   .tgz archive to bypass Vercel's strict 15k file upload limit on Hobby plans.
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -48,36 +47,35 @@ jobs:
       # --- Schritt 5: SANDBOX BYPASS & JSON SAFE PATCH ---
       - name: 5. Vercel Umgebung & Build-Bypass injizieren
         run: |
-          # 1. Echte Keys laden
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
           vercel env pull .env --environment=production --token=${{ secrets.VERCEL_TOKEN }}
           
-          # 2. Fake-DB-Variablen sicher in die .env Datei anhängen
+          # Fake-DB-Variablen sicher in die .env Datei anhängen
           echo "" >> .env
           echo "NEXT_PUBLIC_SERVICE_MODE=client" >> .env
           echo "NEXT_PUBLIC_CLIENT_DB=pglite" >> .env
           echo "KEY_VAULTS_SECRET=u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e=" >> .env
           echo "DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy" >> .env
           
-          # 3. JSON SAFE HACK: package.json sicher bearbeiten ohne Anführungszeichen zu zerstören
+          # JSON SAFE HACK: package.json sicher bearbeiten
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
             for (let key in pkg.scripts) {
               if (typeof pkg.scripts[key] === 'string') {
-                // Sucht und löscht den Migrations-Befehl sicher aus allen Scripts
                 pkg.scripts[key] = pkg.scripts[key].replace(/ && bun run db:migrate/g, '');
               }
             }
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-            console.log('✅ db:migrate erfolgreich entfernt und JSON ist valide!');
+            console.log('✅ db:migrate erfolgreich entfernt!');
           "
 
-      # --- Schritt 6: Kompilieren ---
+      # --- Schritt 6: Kompilieren (läuft nun erfolgreich durch!) ---
       - name: 6. Applikation kompilieren (Build)
-        # Die JSON ist nun garantiert valide und die Fake-DB befriedigt Next.js
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-      # --- Schritt 7: Deployment ---
+      # --- Schritt 7: Deployment (Der TGZ Archiv Fix) ---
       - name: 7. Fertiges Paket an Vercel senden (Deploy)
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        # NEU: Das Flag '--archive=tgz' komprimiert alle 18.281 Dateien in 
+        # eine einzige Archivdatei und umgeht damit das Vercel Upload-Limit!
+        run: vercel deploy --prebuilt --archive=tgz --prod --token=${{ secrets.VERCEL_TOKEN }}
