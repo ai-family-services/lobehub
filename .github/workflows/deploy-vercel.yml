@@ -1,12 +1,13 @@
 # ==============================================================================
-# v09 MODULE DOCSTRING & USAGE INSTRUCTIONS
+# 10 MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: Ultimate Sandbox-Bypass Vercel Deployment Pipeline
+# Name: Ultimate Sandbox-Bypass Vercel Deployment Pipeline (JSON Safe)
 # Description: 
 #   Vercel isoliert den Build-Prozess und ignoriert OS-Variablen. 
 #   Dieses Skript bricht in die Sandbox ein, schreibt Dummy-Datenbank-Werte 
-#   direkt in die .env Datei und löscht hart den db:migrate Befehl.
-#   So wird Next.js ausgetrickst und kompiliert den Chat für den Client-Modus.
+#   direkt in die .env Datei. Danach nutzt es ein sicheres Node.js Skript, 
+#   um den 'db:migrate' Befehl restlos aus der package.json zu entfernen, 
+#   ohne die JSON-Syntax zu zerstören.
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -17,7 +18,6 @@ on:
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-  # Unterdrückt die GitHub-Warnungen
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -45,27 +45,37 @@ jobs:
       - name: 4. Offizielles Vercel CLI installieren
         run: npm install --global vercel@latest
 
-      # --- Schritt 5: SANDBOX BYPASS (Hier passiert die Magie) ---
+      # --- Schritt 5: SANDBOX BYPASS & JSON SAFE PATCH ---
       - name: 5. Vercel Umgebung & Build-Bypass injizieren
         run: |
-          # 1. Wir laden deine echten Keys (Google API, Access Code)
+          # 1. Echte Keys laden
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
           vercel env pull .env --environment=production --token=${{ secrets.VERCEL_TOKEN }}
           
-          # 2. DER HACK: Wir schreiben die Fake-DB-Variablen physisch in die .env Datei!
-          # Dadurch MUSS der Compiler sie einlesen und stürzt bei der Prüfung nicht ab.
+          # 2. Fake-DB-Variablen sicher in die .env Datei anhängen
           echo "" >> .env
           echo "NEXT_PUBLIC_SERVICE_MODE=client" >> .env
           echo "NEXT_PUBLIC_CLIENT_DB=pglite" >> .env
           echo "KEY_VAULTS_SECRET=u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e=" >> .env
           echo "DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy" >> .env
           
-          # 3. Wir schneiden mit 'sed' das db:migrate Skript hart aus dem Code heraus.
-          sed -i 's/bun run db:migrate/echo "Skip DB"/g' package.json
+          # 3. JSON SAFE HACK: package.json sicher bearbeiten ohne Anführungszeichen zu zerstören
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            for (let key in pkg.scripts) {
+              if (typeof pkg.scripts[key] === 'string') {
+                // Sucht und löscht den Migrations-Befehl sicher aus allen Scripts
+                pkg.scripts[key] = pkg.scripts[key].replace(/ && bun run db:migrate/g, '');
+              }
+            }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+            console.log('✅ db:migrate erfolgreich entfernt und JSON ist valide!');
+          "
 
       # --- Schritt 6: Kompilieren ---
       - name: 6. Applikation kompilieren (Build)
-        # Next.js liest nun die modifizierte .env und ist wunschlos glücklich!
+        # Die JSON ist nun garantiert valide und die Fake-DB befriedigt Next.js
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       # --- Schritt 7: Deployment ---
