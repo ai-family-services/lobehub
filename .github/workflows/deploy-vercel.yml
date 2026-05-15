@@ -1,16 +1,11 @@
 # ==============================================================================
-# v06 MODULE DOCSTRING & USAGE INSTRUCTIONS
+# v07 MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: OOM-Proof Manual Vercel Deployment Pipeline (Community Best-Practice)
+# Name: Clean Manual Vercel Deployment Pipeline
 # Description: 
-#   Dieses CI/CD Skript löst das bekannte Vercel 1GB RAM-Limit Problem,
-#   das bei Monorepos wie LobeChat zu 'Exit Code 137' führt. 
-#   Wir nutzen stattdessen GitHub Actions (16GB RAM) + 8GB SSD-Swap.
-#
-# Architektur-Fixes inkludiert:
-#   - dd-Swap Creation (verhindert 'fallocate' OverlayFS Fehler)
-#   - OS-Level Secret Injection (verhindert Next.js Build-Time Fehler)
-#   - Node 24 Fix (verhindert Deprecation Warnungen)
+#   Compiles LobeChat natively on GitHub Actions leveraging the default 16GB RAM.
+#   Injects required secrets via OS-level environment variables to satisfy 
+#   Next.js strict build-time validations.
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -20,13 +15,14 @@ on:
 
 # ------------------------------------------------------------------------------
 # GLOBALE UMGEBUNGSVARIABLEN (OS-Level Injection)
+# Zieht die Keys sicher aus deinen Repository-Secrets direkt in den Build
 # ------------------------------------------------------------------------------
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   KEY_VAULTS_SECRET: ${{ secrets.KEY_VAULTS_SECRET }}
   ACCESS_CODE: ${{ secrets.ACCESS_CODE }}
-  # Zwingt GitHub Actions auf die moderne V8 Engine (unterdrückt Warnungen)
+  # Unterdrückt die gelbe "Node 20 actions are deprecated" Warnung
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -50,36 +46,21 @@ jobs:
         with:
           bun-version: latest
 
-      # --- Schritt 4: DevOps Memory Hack (Der dd-Fix) ---
-      - name: 4. Server-RAM absichern (8GB Swap File anlegen)
-        # Wir nutzen 'dd' statt 'fallocate', um den 'Text file busy' Fehler 
-        # auf virtuellen Dateisystemen zu umgehen. 
-        # bs=1M und count=8192 schreibt präzise 8 Gigabyte auf die SSD.
-        run: |
-          echo "Erstelle 8GB Swap mit dd (Dies dauert ca. 5-10 Sekunden)..."
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          echo "Swap erfolgreich gemountet!"
-          free -h
-
-      # --- Schritt 5: Vercel Tooling ---
-      - name: 5. Offizielles Vercel CLI installieren
+      # --- Schritt 4: Vercel Tooling ---
+      - name: 4. Offizielles Vercel CLI installieren
         run: npm install --global vercel@latest
 
-      # --- Schritt 6: Projekt-Config Pull ---
-      - name: 6. Vercel Projekt-Umgebung abrufen
-        # Zieht die restliche Projektstruktur. Secrets liegen ohnehin im globalen 'env'.
+      # --- Schritt 5: Projekt-Config Pull ---
+      - name: 5. Vercel Projekt-Umgebung abrufen
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
-      # --- Schritt 7: Kompilieren ---
-      - name: 7. Applikation kompilieren (Build)
-        # Next.js hat nun über 20GB kombinierten RAM zur Verfügung und die 
+      # --- Schritt 6: Kompilieren ---
+      - name: 6. Applikation kompilieren (Build)
+        # Next.js hat nun über 18GB kombinierten RAM zur Verfügung und die 
         # Secrets direkt im Betriebssystem!
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-      # --- Schritt 8: Deployment ---
-      - name: 8. Fertiges Paket an Vercel senden (Deploy)
-        # '--prebuilt' überspringt den Vercel-Builder komplett!
+      # --- Schritt 7: Deployment ---
+      - name: 7. Fertiges Paket an Vercel senden (Deploy)
+        # '--prebuilt' überspringt den Vercel-Builder komplett und pusht die App!
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
