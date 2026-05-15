@@ -1,14 +1,11 @@
 # ==============================================================================
-# v12 FINAL (v11 was successfully with warnings deployed to vercel) 
-# MODULE DOCSTRING & USAGE INSTRUCTIONS
+# v13 redo bypass, MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: LobeChat Zero-Warning Vercel Deployment Pipeline
+# Name: LobeChat Bulletproof OS-Level Vercel Deployment
 # Description: 
-#   The ultimate, fully optimized CI/CD pipeline for deploying LobeChat to Vercel.
-#   - Bypasses the 15k file Vercel Hobby limit using .tgz archiving.
-#   - Injects dummy secrets to pacify Next.js strict build-time validations.
-#   - Suppresses all Node.js and SSG deprecation warnings for clean logs.
-#   - Safely strips backend database migrations for client-mode usage.
+#   The ultimate CI/CD pipeline. Injects required bypass variables directly 
+#   into the runner's OS memory (env block) to guarantee Next.js reads them.
+#   Safely removes the database migration script and bypasses Vercel file limits.
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -16,56 +13,50 @@ name: Manuelles Vercel Deployment
 on:
   workflow_dispatch:
 
+# ------------------------------------------------------------------------------
+# GLOBALE UMGEBUNGSVARIABLEN (OS-Level Injection)
+# Diese Werte werden direkt in den RAM geladen. 100% resistent gegen Cache-Fehler.
+# ------------------------------------------------------------------------------
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # NEU: Unterdrückt die "punycode" Deprecation-Warnung im Log
   NODE_OPTIONS: "--no-deprecation"
+  
+  # --- DER BULLETPROOF BYPASS ---
+  NEXT_PUBLIC_SERVICE_MODE: client
+  NEXT_PUBLIC_CLIENT_DB: pglite
+  KEY_VAULTS_SECRET: "u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e="
+  DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+  BETTER_AUTH_SECRET: "u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e="
+  QSTASH_TOKEN: "dummy_qstash_token"
 
 jobs:
   Deploy:
     runs-on: ubuntu-latest
     
     steps:
-      # --- Schritt 1: Quellcode laden ---
       - name: 1. Code aus dem Repository laden (Checkout)
         uses: actions/checkout@v4
 
-      # --- Schritt 2: Node Engine ---
       - name: 2. Node.js Laufzeitumgebung einrichten
         uses: actions/setup-node@v4
         with:
-          # NEU: Upgrade auf Node 22 LTS (behebt das oidc-provider Warning)
           node-version: 22
 
-      # --- Schritt 3: Bun Paketmanager ---
-      - name: 3. Bun Laufzeitumgebung einrichten
+      - name: 3. Bun Paketmanager einrichten
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # --- Schritt 4: Vercel Tooling ---
       - name: 4. Offizielles Vercel CLI installieren
         run: npm install --global vercel@latest
 
-      # --- Schritt 5: SANDBOX BYPASS & ZERO-WARNING INJECTION ---
-      - name: 5. Vercel Umgebung & Build-Bypass injizieren
+      - name: 5. Vercel Projekt-Umgebung abrufen
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: 6. JSON SAFE HACK (db:migrate entfernen)
         run: |
-          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-          vercel env pull .env --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-          
-          # Alle Dummy-Werte anfügen, damit der Build flüsterleise durchläuft
-          echo "" >> .env
-          echo "NEXT_PUBLIC_SERVICE_MODE=client" >> .env
-          echo "NEXT_PUBLIC_CLIENT_DB=pglite" >> .env
-          echo "KEY_VAULTS_SECRET=u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e=" >> .env
-          echo "DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy" >> .env
-          # NEU: Dummys für BetterAuth & QStash (verhindert Error-Stacks beim Rendern)
-          echo "BETTER_AUTH_SECRET=u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e=" >> .env
-          echo "QSTASH_TOKEN=dummy_qstash_token_for_build" >> .env
-          
-          # JSON SAFE HACK: db:migrate sicher entfernen
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -78,11 +69,9 @@ jobs:
             console.log('✅ db:migrate erfolgreich entfernt!');
           "
 
-      # --- Schritt 6: Kompilieren ---
-      - name: 6. Applikation kompilieren (Build)
+      - name: 7. Applikation kompilieren (Build)
+        # Next.js liest KEY_VAULTS_SECRET jetzt garantiert aus dem OS RAM!
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-      # --- Schritt 7: Deployment ---
-      - name: 7. Fertiges Paket an Vercel senden (Deploy)
-        # Sichert den Upload-Erfolg durch das TGZ Archiv
+      - name: 8. Fertiges Paket an Vercel senden (Deploy)
         run: vercel deploy --prebuilt --archive=tgz --prod --token=${{ secrets.VERCEL_TOKEN }}
