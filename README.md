@@ -1,5 +1,7 @@
 <div align="center"><a name="readme-top"></a>
 
+[![Manuelles Vercel Deployment](https://github.com/ai-family-services/lobehub/actions/workflows/deploy-vercel.yml/badge.svg)](https://github.com/ai-family-services/lobehub/actions/workflows/deploy-vercel.yml)
+
 [![][image-banner]][vercel-link]
 
 # LobeHub
