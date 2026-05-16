@@ -1,11 +1,11 @@
 # ==============================================================================
-# v13 redo bypass, MODULE DOCSTRING & USAGE INSTRUCTIONS
+# v14 add .env again - MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: LobeChat Bulletproof OS-Level Vercel Deployment
+# Name: LobeChat Client-Mode Deployment (The Golden Master)
 # Description: 
-#   The ultimate CI/CD pipeline. Injects required bypass variables directly 
-#   into the runner's OS memory (env block) to guarantee Next.js reads them.
-#   Safely removes the database migration script and bypasses Vercel file limits.
+#   Erstellt eine lokale .env Datei mit Dummy-Werten, um den Next.js Compiler 
+#   auf GitHub zu befriedigen. Entfernt sicher das db:migrate Skript.
+#   Pusht das fertige Paket per .tgz Archiv zu Vercel.
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -13,23 +13,11 @@ name: Manuelles Vercel Deployment
 on:
   workflow_dispatch:
 
-# ------------------------------------------------------------------------------
-# GLOBALE UMGEBUNGSVARIABLEN (OS-Level Injection)
-# Diese Werte werden direkt in den RAM geladen. 100% resistent gegen Cache-Fehler.
-# ------------------------------------------------------------------------------
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_OPTIONS: "--no-deprecation"
-  
-  # --- DER BULLETPROOF BYPASS ---
-  NEXT_PUBLIC_SERVICE_MODE: client
-  NEXT_PUBLIC_CLIENT_DB: pglite
-  KEY_VAULTS_SECRET: "u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e="
-  DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
-  BETTER_AUTH_SECRET: "u9B5xM2vQ8wR1tY3uI5oA0kF7jH4nC9lD2gS1bZ7X6e="
-  QSTASH_TOKEN: "dummy_qstash_token"
 
 jobs:
   Deploy:
@@ -52,11 +40,19 @@ jobs:
       - name: 4. Offizielles Vercel CLI installieren
         run: npm install --global vercel@latest
 
-      - name: 5. Vercel Projekt-Umgebung abrufen
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: 6. JSON SAFE HACK (db:migrate entfernen)
+      - name: 5. Build-Bypass injizieren (.env Erstellung)
         run: |
+          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+          
+          # Wir erstellen die .env Datei lokal, damit der Compiler nicht abstürzt
+          echo "NEXT_PUBLIC_SERVICE_MODE=client" > .env
+          echo "NEXT_PUBLIC_CLIENT_DB=pglite" >> .env
+          echo "KEY_VAULTS_SECRET=dummy_secret_for_build_bypass_32_bytes=" >> .env
+          echo "DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy" >> .env
+          echo "BETTER_AUTH_SECRET=dummy_secret_for_build_bypass_32_bytes=" >> .env
+          echo "QSTASH_TOKEN=dummy_qstash_token_for_build" >> .env
+          
+          # Sicheres Entfernen von db:migrate
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -69,9 +65,8 @@ jobs:
             console.log('✅ db:migrate erfolgreich entfernt!');
           "
 
-      - name: 7. Applikation kompilieren (Build)
-        # Next.js liest KEY_VAULTS_SECRET jetzt garantiert aus dem OS RAM!
+      - name: 6. Applikation kompilieren (Build)
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-      - name: 8. Fertiges Paket an Vercel senden (Deploy)
+      - name: 7. Fertiges Paket an Vercel senden (Deploy)
         run: vercel deploy --prebuilt --archive=tgz --prod --token=${{ secrets.VERCEL_TOKEN }}
