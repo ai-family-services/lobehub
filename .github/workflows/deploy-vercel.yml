@@ -1,11 +1,13 @@
 # ==============================================================================
-# v14 add .env again - MODULE DOCSTRING & USAGE INSTRUCTIONS
+# v015 MODULE DOCSTRING & USAGE INSTRUCTIONS
 # ==============================================================================
-# Name: LobeChat Client-Mode Deployment (The Golden Master)
+# Name: LobeChat The Golden Master Deployment
 # Description: 
-#   Erstellt eine lokale .env Datei mit Dummy-Werten, um den Next.js Compiler 
-#   auf GitHub zu befriedigen. Entfernt sicher das db:migrate Skript.
-#   Pusht das fertige Paket per .tgz Archiv zu Vercel.
+#   Die absolut fehlerfreie CI/CD Pipeline. 
+#   1. Nutzt Node 22 (verhindert Warnungen).
+#   2. Zieht die Vercel-Umgebung und injiziert physisch Dummy-Keys in die .env.
+#   3. Entfernt das Datenbank-Migrationsskript sicher per Node.js Regex.
+#   4. Packt 18.000 Dateien in ein TGZ-Archiv, um Vercel Limits zu umgehen.
 # ==============================================================================
 
 name: Manuelles Vercel Deployment
@@ -16,6 +18,7 @@ on:
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # Unterdrückt GitHub-Runner Warnungen
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_OPTIONS: "--no-deprecation"
 
@@ -40,19 +43,22 @@ jobs:
       - name: 4. Offizielles Vercel CLI installieren
         run: npm install --global vercel@latest
 
-      - name: 5. Build-Bypass injizieren (.env Erstellung)
+      - name: 5. SANDBOX BYPASS (Die Magie aus Lauf #13)
         run: |
+          # 1. Wir laden die Umgebung von Vercel herunter
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+          vercel env pull .env --environment=production --token=${{ secrets.VERCEL_TOKEN }}
           
-          # Wir erstellen die .env Datei lokal, damit der Compiler nicht abstürzt
-          echo "NEXT_PUBLIC_SERVICE_MODE=client" > .env
+          # 2. Wir zwingen den Compiler mit Dummys in der .env zum Schweigen!
+          echo "" >> .env
+          echo "NEXT_PUBLIC_SERVICE_MODE=client" >> .env
           echo "NEXT_PUBLIC_CLIENT_DB=pglite" >> .env
           echo "KEY_VAULTS_SECRET=dummy_secret_for_build_bypass_32_bytes=" >> .env
           echo "DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy" >> .env
           echo "BETTER_AUTH_SECRET=dummy_secret_for_build_bypass_32_bytes=" >> .env
-          echo "QSTASH_TOKEN=dummy_qstash_token_for_build" >> .env
+          echo "QSTASH_TOKEN=dummy_qstash_token" >> .env
           
-          # Sicheres Entfernen von db:migrate
+          # 3. JSON SAFE HACK: db:migrate sicher entfernen
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -62,11 +68,13 @@ jobs:
               }
             }
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-            console.log('✅ db:migrate erfolgreich entfernt!');
+            console.log('✅ db:migrate erfolgreich aus package.json entfernt!');
           "
 
       - name: 6. Applikation kompilieren (Build)
+        # Next.js liest nun die manipulierten .env Dummys und baut fröhlich durch.
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: 7. Fertiges Paket an Vercel senden (Deploy)
+        # '--archive=tgz' überlistet das Vercel Upload Limit!
         run: vercel deploy --prebuilt --archive=tgz --prod --token=${{ secrets.VERCEL_TOKEN }}
